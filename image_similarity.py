@@ -1,8 +1,9 @@
 import cv2
 import numpy as np
-from sklearn.cluster import DBSCAN, KMeans
+from sklearn.cluster import DBSCAN, MiniBatchKMeans
 from os import listdir
 from os.path import isfile, join
+from multiprocessing import Pool, cpu_count
 
 
 def load_images_from_folder(folder):
@@ -12,28 +13,29 @@ def load_images_from_folder(folder):
         if isfile(join(folder, filename)):
             img = cv2.imread(join(folder, filename))
             if img is not None:
+                img = cv2.resize(img, (300, 300))
                 images.append(img)
                 filenames.append(filename)
     return images, filenames
 
 
+def extract_features_from_image(img):
+    orb = cv2.ORB_create()
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    keypoints, descriptors = orb.detectAndCompute(gray, None)
+    return descriptors
+
+
 def extract_features(images):
-    sift = cv2.SIFT_create()
-    all_descriptors = []
-    descriptors_list = []
-    for img in images:
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        keypoints, descriptors = sift.detectAndCompute(gray, None)
-        if descriptors is not None:
-            all_descriptors.extend(descriptors)
-            descriptors_list.append(descriptors)
-        else:
-            descriptors_list.append(np.array([]))  # handle img w/o descriptors
+    with Pool(cpu_count()) as pool:
+        descriptors_list = pool.map(extract_features_from_image, images)
+    all_descriptors = [desc for descriptors in descriptors_list
+                       if descriptors is not None for desc in descriptors]
     return np.array(all_descriptors), descriptors_list
 
 
 def create_vocabulary(all_descriptors, k=100):
-    kmeans = KMeans(n_clusters=k, random_state=42)
+    kmeans = MiniBatchKMeans(n_clusters=k, random_state=42)
     kmeans.fit(all_descriptors)
     return kmeans
 
@@ -41,7 +43,7 @@ def create_vocabulary(all_descriptors, k=100):
 def extract_bow_histogram(descriptors_list, kmeans):
     histograms = []
     for descriptors in descriptors_list:
-        if descriptors.size == 0:
+        if descriptors is None or descriptors.size == 0:
             histograms.append(np.zeros(kmeans.n_clusters))
         else:
             words = kmeans.predict(descriptors)
@@ -66,6 +68,19 @@ def group_images_by_cluster(labels, filenames):
     return clusters
 
 
+def print_clusters(clusters):
+    # Separate out the cluster labeled -1
+    regular_clusters = {k: v for k, v in clusters.items() if k != -1}
+    noise_cluster = clusters.get(-1, [])
+
+    for label, files in sorted(regular_clusters.items()):
+        print(f"\nCluster {label}: {files}")
+
+    if noise_cluster:
+        print("\n" * 2)  # Add some new lines to separate out the noise cluster
+        print(f"Distinct Images (Noise/Outliers): {noise_cluster}\n")
+
+
 if __name__ == "__main__":
     import sys
     folder = sys.argv[1]
@@ -75,5 +90,4 @@ if __name__ == "__main__":
     histograms = extract_bow_histogram(descriptors_list, kmeans)
     labels = cluster_images(histograms)
     clusters = group_images_by_cluster(labels, filenames)
-    for label, files in clusters.items():
-        print(f"Cluster {label}: {files}")
+    print_clusters(clusters)
