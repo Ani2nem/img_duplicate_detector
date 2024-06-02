@@ -1,9 +1,10 @@
 import cv2
 import numpy as np
 from sklearn.cluster import DBSCAN, MiniBatchKMeans
-from os import listdir
-from os.path import isfile, join
+from os import listdir, makedirs, remove
+from os.path import isfile, join, exists
 from multiprocessing import Pool, cpu_count
+import shutil
 
 
 def load_images_from_folder(folder):
@@ -81,8 +82,46 @@ def print_clusters(clusters):
         print(f"Distinct Images (Noise/Outliers): {noise_cluster}\n")
 
 
+def save_clusters(clusters, folder):
+    # Separate out the cluster labeled -1
+    regular_clusters = {k: v for k, v in clusters.items() if k != -1}
+    noise_cluster = clusters.get(-1, [])
+
+    # Create directories
+    distinct_folder = join(folder, 'Distinct Images')
+    duplicates_folder = join(folder, 'Duplicates')
+
+    if not exists(distinct_folder):
+        makedirs(distinct_folder)
+    if not exists(duplicates_folder):
+        makedirs(duplicates_folder)
+
+    # Save distinct images
+    for filename in noise_cluster:
+        source_file = join(folder, filename)
+        dest_file = join(distinct_folder, filename)
+        shutil.move(source_file, dest_file)
+
+    # Save all duplicate images to a single folder
+    for label, files in sorted(regular_clusters.items()):
+        for filename in files:
+            source_file = join(folder, filename)
+            dest_file = join(duplicates_folder, filename)
+            shutil.move(source_file, dest_file)
+
+    # Remove any remaining files in the folder
+    for filename in listdir(folder):
+        file_path = join(folder, filename)
+        if isfile(file_path):
+            remove(file_path)
+
+
 if __name__ == "__main__":
     import sys
+    if len(sys.argv) != 2:
+        print("Usage: python image_similarity.py <folder_path>")
+        sys.exit(1)
+
     folder = sys.argv[1]
     images, filenames = load_images_from_folder(folder)
     all_descriptors, descriptors_list = extract_features(images)
@@ -91,3 +130,4 @@ if __name__ == "__main__":
     labels = cluster_images(histograms)
     clusters = group_images_by_cluster(labels, filenames)
     print_clusters(clusters)
+    save_clusters(clusters, folder)

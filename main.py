@@ -1,7 +1,7 @@
 from image_similarity import load_images_from_folder, extract_features
 from image_similarity import create_vocabulary, extract_bow_histogram
 from image_similarity import cluster_images, group_images_by_cluster
-from image_similarity import print_clusters
+from image_similarity import print_clusters, save_clusters
 
 
 def main():
@@ -18,6 +18,7 @@ def main():
     labels = cluster_images(histograms)
     clusters = group_images_by_cluster(labels, filenames)
     print_clusters(clusters)
+    save_clusters(clusters, folder_path)
 
 
 if __name__ == "__main__":
